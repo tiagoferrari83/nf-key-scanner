@@ -4,4 +4,3 @@ pillow
 opencv-python-headless
 pdf2image
 pyzbar
-numpy
