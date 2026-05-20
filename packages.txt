@@ -1,7 +1,5 @@
 tesseract-ocr
-    tesseract-ocr-por
-    libgl1-mesa-glx
-    poppler-utils
-    libzbar0
-    ```
-    *Isso avisa ao servidor Linux do Streamlit para instalar o Tesseract em português, o leitor de PDF (Poppler), o OpenCV e o leitor de código de barras (ZBar).*
+tesseract-ocr-por
+libglx-mesa0
+poppler-utils
+libzbar0
