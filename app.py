@@ -38,12 +38,24 @@ def validar_chave(texto):
 # =========================================================================
 # DETECÇÃO POR PYZBAR
 # =========================================================================
-def tentar_pyzbar(cinza):
-    """Tenta PyZbar com imagem original e binarizada."""
-    tentativas = [
-        cinza,
-        cv2.threshold(cinza, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1],
-    ]
+def tentar_ler_codigos(imagem_np):
+    """
+    Tenta decodificar código de barras ou QR Code via PyZbar.
+    Para cada imagem testa a versão original e rotacionada 180°,
+    pois o PyZbar não lida bem com códigos de barras lineares invertidos.
+    Também testa com binarização Otsu para imagens de baixo contraste.
+    """
+    if len(imagem_np.shape) == 3:
+        cinza = cv2.cvtColor(imagem_np, cv2.COLOR_BGR2GRAY)
+    else:
+        cinza = imagem_np
+
+    cinza_180 = cv2.rotate(cinza, cv2.ROTATE_180)
+    binarizada = cv2.threshold(cinza, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+    binarizada_180 = cv2.rotate(binarizada, cv2.ROTATE_180)
+
+    tentativas = [cinza, cinza_180, binarizada, binarizada_180]
+
     for img in tentativas:
         for codigo in decode(img):
             texto = codigo.data.decode('utf-8')
@@ -54,61 +66,6 @@ def tentar_pyzbar(cinza):
             if m:
                 return m.group(1)
     return None
-
-# =========================================================================
-# DETECÇÃO POR OPENCV BARCODE API (reforço para 180° e baixa qualidade)
-# =========================================================================
-def tentar_opencv_barcode(cinza):
-    """
-    Usa o detector nativo do OpenCV (BarcodeDetector), disponível a partir
-    da versão 4.8 com o módulo wechat_qrcode ou contrib.
-    Funciona bem para códigos de barras lineares rotacionados.
-    """
-    try:
-        detector = cv2.barcode.BarcodeDetector()
-        ok, textos, _, _ = detector.detectAndDecodeMulti(cinza)
-        if ok:
-            for texto in textos:
-                if texto:
-                    chave = validar_chave(texto)
-                    if chave:
-                        return chave
-    except AttributeError:
-        pass  # módulo não disponível nesta instalação do OpenCV
-    return None
-
-# =========================================================================
-# DETECÇÃO POR WECHAT QRCODE (QR Code adicional)
-# =========================================================================
-def tentar_wechat_qr(cinza):
-    """Usa WeChatQRCode do OpenCV contrib para QR Codes difíceis."""
-    try:
-        detector = cv2.wechat_qrcode.WeChatQRCode()
-        textos, _ = detector.detectAndDecode(cinza)
-        for texto in textos:
-            if texto:
-                chave = validar_chave(texto)
-                if chave:
-                    return chave
-    except AttributeError:
-        pass
-    return None
-
-# =========================================================================
-# PIPELINE COMPLETO DE DETECÇÃO DE CÓDIGOS
-# Tenta PyZbar → OpenCV Barcode → WeChatQR em cada rotação
-# =========================================================================
-def tentar_ler_codigos(imagem_np):
-    if len(imagem_np.shape) == 3:
-        cinza = cv2.cvtColor(imagem_np, cv2.COLOR_BGR2GRAY)
-    else:
-        cinza = imagem_np
-
-    return (
-        tentar_pyzbar(cinza)
-        or tentar_opencv_barcode(cinza)
-        or tentar_wechat_qr(cinza)
-    )
 
 # =========================================================================
 # OCR TRADICIONAL
