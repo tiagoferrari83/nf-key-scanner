@@ -83,18 +83,24 @@ def validar_modulo11(chave):
 # DETECÇÃO POR PYZBAR
 # =========================================================================
 def tentar_ler_codigos(imagem_np):
+    """
+    Tenta decodificar código de barras ou QR Code via PyZbar.
+    Para cada imagem testa a versão original e rotacionada 180°,
+    pois o PyZbar não lida bem com códigos de barras lineares invertidos.
+    Também testa com binarização Otsu para imagens de baixo contraste.
+    """
     if len(imagem_np.shape) == 3:
         cinza = cv2.cvtColor(imagem_np, cv2.COLOR_BGR2GRAY)
     else:
         cinza = imagem_np
-    
+
     cinza_180 = cv2.rotate(cinza, cv2.ROTATE_180)
     binarizada = cv2.threshold(cinza, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
     binarizada_180 = cv2.rotate(binarizada, cv2.ROTATE_180)
-    
+
     tentativas = [cinza, cinza_180, binarizada, binarizada_180]
-    
-    for img in tentatives:
+
+    for img in tentativas:
         for codigo in decode(img):
             texto = codigo.data.decode('utf-8')
             chave = validar_chave(texto)
