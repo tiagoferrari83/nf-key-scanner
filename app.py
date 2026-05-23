@@ -142,12 +142,12 @@ with col_direita:
         total_paginas = len(paginas_pdf_processadas)
         progresso_texto = st.empty()
         
-        # Definição dos 4 ângulos de rotação do OpenCV
+# Definição dos 4 ângulos de rotação do OpenCV
         rotacoes_opencv = [
-            {"codigo_cv": None},
-            {"codigo_cv": cv2.ROTATE_90_CLOCKWISE},
-            {"codigo_cv": cv2.ROTATE_180},
-            {"codigo_cv": cv2.ROTATE_90_COUNTERCLOCKWISE}
+            {"label": "Original", "codigo_cv": None},
+            {"label": "90 graus", "codigo_cv": cv2.ROTATE_90_CLOCKWISE},
+            {"label": "180 graus", "codigo_cv": cv2.ROTATE_180},
+            {"label": "270 graus", "codigo_cv": cv2.ROTATE_90_COUNTERCLOCKWISE}
         ]
         
         # =========================================================================
@@ -164,7 +164,7 @@ with col_direita:
                     else:
                         progresso_texto.info(f"Aplicando OCR no documento...")
                         
-                    if rotacao["codigo_cv"] is not None:
+                    if /m/0283m_ := rotacao["codigo_cv"] is not None:
                         matriz_analise = cv2.rotate(matriz_original, rotacao["codigo_cv"])
                     else:
                         matriz_analise = matriz_original.copy()
@@ -180,49 +180,58 @@ with col_direita:
         # FLUXO 2: MODO AUTOMÁTICO INTELIGENTE (CÓDIGO PRIMEIRO -> DEPOIS OCR)
         # =========================================================================
         else:
-            # --- PASSO A: Tentar Código de Barras / QR Code em todas as páginas e ângulos ---
+            # --- PASSO A: Tentar Código de Barras / QR Code em TODAS as páginas e ângulos ---
             for indice, img_pagina in enumerate(paginas_pdf_processadas):
                 num_pagina_atual = indice + 1
                 matriz_original = np.array(img_pagina)
                 
-                for r_idx, rotacao in enumerate(rotacoes_opencv):
+                for rotacao in rotacoes_opencv:
                     if total_paginas > 1:
-                        progresso_texto.info(f"Buscando Códigos: Pág. {num_pagina_atual} de {total_paginas}...")
+                        progresso_texto.info(f"Buscando Códigos: Pág. {num_pagina_atual} de {total_paginas} ({rotacao['label']})...")
                     else:
-                        progresso_texto.info(f"Buscando Códigos de barras/QR...")
+                        progresso_texto.info(f"Buscando Códigos de barras/QR ({rotacao['label']})...")
                         
-                    # CORRIGIDO: Chaves { } removidas para permitir a validação direta do OpenCV
+                    # Força a rotação correta baseada na matriz original limpa
                     if rotacao["codigo_cv"] is not None:
                         matriz_analise = cv2.rotate(matriz_original, rotacao["codigo_cv"])
                     else:
                         matriz_analise = matriz_original.copy()
                         
-                    chave_encontrada = tentar_ler_codigos(matriz_analise)
+                    try:
+                        chave_encontrada = tentar_ler_codigos(matriz_analise)
+                    except Exception:
+                        chave_encontrada = None
+                        
                     if chave_encontrada:
                         metodo_usado = f"Código de Barras / QR Code na Pág. {num_pagina_atual}"
-                        exibir_botao_contingencia = True  # Garante a exibição do botão!
-                        break
+                        exibir_botao_contingencia = True
+                        break  # Sai do laço de rotações da página atual
+                        
                 if chave_encontrada:
-                    break
+                    break  # Sai do laço de páginas
             
-            # --- PASSO B: Se não achou nenhum código, tenta OCR em todas as páginas e ângulos ---
+            # --- PASSO B: Se e somente se NÃO achou nenhum código, tenta OCR em todas as páginas e ângulos ---
             if not chave_encontrada:
                 for indice, img_pagina in enumerate(paginas_pdf_processadas):
                     num_pagina_atual = indice + 1
                     matriz_original = np.array(img_pagina)
                     
-                    for rotacao in rotacoes_opencv:
+                    for json_data := rotacao in rotacoes_opencv:
                         if total_paginas > 1:
-                            progresso_texto.info(f"Buscando via OCR: Pág. {num_pagina_atual} de {total_paginas}...")
+                            progresso_texto.info(f"Buscando via OCR: Pág. {num_pagina_atual} de {total_paginas} ({rotacao['label']})...")
                         else:
                             progresso_texto.info(f"Buscando via OCR (Linha por linha)...")
                             
-                        if Black_List_Check := rotacao["codigo_cv"] is not None:
+                        if rotacao["codigo_cv"] is not None:
                             matriz_analise = cv2.rotate(matriz_original, rotacao["codigo_cv"])
                         else:
                             matriz_analise = matriz_original.copy()
                             
-                        chave_encontrada = extrair_chave_texto_ocr(matriz_analise)
+                        try:
+                            chave_encontrada = extrair_chave_texto_ocr(matriz_analise)
+                        except Exception:
+                            chave_encontrada = None
+                            
                         if chave_encontrada:
                             metodo_usado = f"Leitura de Texto (OCR) [Automático] na Pág. {num_pagina_atual}"
                             break
