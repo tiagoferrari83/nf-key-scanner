@@ -227,13 +227,13 @@ with col_direita:
 
             if exibir_botao_contingencia:
                 st.write("")
-                if st.button("🔄 Falso Positivo? Identificar por Texto (OCR)", type="secondary", use_container_width=True):
+                if st.button("🔄 Falso Positivo? Identificar por Texto (OCR)", type="secondary", width='content'):
                     st.session_state.forcar_ocr = True
                     st.rerun()
 
             if st.session_state.forcar_ocr:
                 st.write("")
-                if st.button("🔙 Voltar para Detecção Automática", type="primary", use_container_width=True):
+                if st.button("🔙 Voltar para Detecção Automática", type="primary", width='content'):
                     st.session_state.forcar_ocr = False
                     st.rerun()
 
@@ -242,9 +242,9 @@ with col_direita:
             with sub_col1:
                 st.link_button("Ir para a Receita Federal 🌐",
                     "https://www.nfe.fazenda.gov.br/portal/consultaRecouch.aspx?tipoConsulta=completa",
-                    use_container_width=True)
+                    width='content')
             with sub_col2:
-                st.link_button("Ir para o MeuDanfe 📄", "https://meudanfe.com.br", use_container_width=True)
+                st.link_button("Ir para o MeuDanfe 📄", "https://meudanfe.com.br", width='content')
 
             st.write("")
             st.text_input("Visualização auxiliar (texto):", value=chave_encontrada, key="chave_fiscal_reserva")
