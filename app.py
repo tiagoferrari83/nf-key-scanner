@@ -15,7 +15,7 @@ pytesseract.pytesseract.tesseract_cmd = 'tesseract'
 # Configuração da página em modo 'wide'
 st.set_page_config(page_title="Scanner de Nota Fiscal", page_icon="📄", layout="wide")
 
-st.title("📄 Scanner de Notas Fiscais Inteligente (NF-e / NFS-e)")
+st.title("📄 Nota Fiscal Key Scanner 9NF-e / NFS-e) - AMBIENTE DE DESENVOLVIMENTO")
 st.write("Envie o documento na esquerda. O sistema detecta automaticamente chaves de 44 ou 50 dígitos em qualquer página.")
 st.divider()
 
