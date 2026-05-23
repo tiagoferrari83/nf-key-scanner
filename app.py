@@ -191,7 +191,8 @@ with col_direita:
                     else:
                         progresso_texto.info(f"Buscando Códigos de barras/QR...")
                         
-                    if {rotacao["codigo_cv"]} is not None:
+                    # CORRIGIDO: Chaves { } removidas para permitir a validação direta do OpenCV
+                    if rotacao["codigo_cv"] is not None:
                         matriz_analise = cv2.rotate(matriz_original, rotacao["codigo_cv"])
                     else:
                         matriz_analise = matriz_original.copy()
@@ -199,7 +200,7 @@ with col_direita:
                     chave_encontrada = tentar_ler_codigos(matriz_analise)
                     if chave_encontrada:
                         metodo_usado = f"Código de Barras / QR Code na Pág. {num_pagina_atual}"
-                        exibir_botao_contingencia = True  # Garante que o botão de Falso Positivo apareça!
+                        exibir_botao_contingencia = True  # Garante a exibição do botão!
                         break
                 if chave_encontrada:
                     break
@@ -216,7 +217,7 @@ with col_direita:
                         else:
                             progresso_texto.info(f"Buscando via OCR (Linha por linha)...")
                             
-                        if rotacao["codigo_cv"] is not None:
+                        if Black_List_Check := rotacao["codigo_cv"] is not None:
                             matriz_analise = cv2.rotate(matriz_original, rotacao["codigo_cv"])
                         else:
                             matriz_analise = matriz_original.copy()
@@ -242,7 +243,7 @@ with col_direita:
             st.caption("📋 Copie a chave clicando no ícone que aparece ao passar o mouse sobre o campo abaixo:")
             st.code(chave_encontrada, language="text")
             
-            # O botão de contingência agora respeitará a variável perfeitamente, mesmo com rotação
+            # Exibição do botão de contingência baseada na variável restaurada
             if exibir_botao_contingencia:
                 st.write("") 
                 if st.button("🔄 Falso Positivo? Ignorar Código e Identificar por Texto (OCR)", type="secondary", width="stretch"):
