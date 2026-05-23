@@ -171,7 +171,7 @@ with col_esquerda:
         if "ligar_camera" not in st.session_state:
             st.session_state.ligar_camera = False
 
-        if st.button("🔋 Ativar Câmera do Dispositivo", type="primary"):
+        if st.button("🔋 Ativar Câmera do Dispositivo", type="primary", width="stretch"):
             st.session_state.ligar_camera = True
 
         if st.session_state.ligar_camera:
@@ -183,7 +183,7 @@ with col_esquerda:
 
     if imagem_exibicao_esquerda is not None:
         st.write("")
-        st.image(imagem_exibicao_esquerda, caption="Documento carregado", use_container_width=True)
+        st.image(imagem_exibicao_esquerda, caption="Documento carregado", width="stretch")
 
 # =========================================================================
 # COLUNA DIREITA — resultados
@@ -227,13 +227,13 @@ with col_direita:
 
             if exibir_botao_contingencia:
                 st.write("")
-                if st.button("🔄 Falso Positivo? Identificar por Texto (OCR)", type="secondary", width='content'):
+                if st.button("🔄 Falso Positivo? Identificar por Texto (OCR)", type="secondary", width="stretch"):
                     st.session_state.forcar_ocr = True
                     st.rerun()
 
             if st.session_state.forcar_ocr:
                 st.write("")
-                if st.button("🔙 Voltar para Detecção Automática", type="primary", width='content'):
+                if st.button("🔙 Voltar para Detecção Automática", type="primary", width="stretch"):
                     st.session_state.forcar_ocr = False
                     st.rerun()
 
@@ -242,9 +242,9 @@ with col_direita:
             with sub_col1:
                 st.link_button("Ir para a Receita Federal 🌐",
                     "https://www.nfe.fazenda.gov.br/portal/consultaRecouch.aspx?tipoConsulta=completa",
-                    width='content')
+                    width="stretch")
             with sub_col2:
-                st.link_button("Ir para o MeuDanfe 📄", "https://meudanfe.com.br", width='content')
+                st.link_button("Ir para o MeuDanfe 📄", "https://meudanfe.com.br", width="stretch")
 
             st.write("")
             st.text_input("Visualização auxiliar (texto):", value=chave_encontrada, key="chave_fiscal_reserva")
