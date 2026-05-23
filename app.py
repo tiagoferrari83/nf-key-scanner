@@ -31,9 +31,16 @@ if "forcar_ocr" not in st.session_state:
 def tentar_ler_codigos(imagem_np):
     """
     Busca códigos de barras ou QR Codes em uma matriz OpenCV (NumPy).
+    Converte para escala de cinza internamente para garantir máxima precisão do PyZbar.
     """
     try:
-        codigos_detectados = decode(imagem_np)
+        # Garante que a imagem esteja em tons de cinza para o pyzbar não falhar na rotação
+        if len(imagem_np.shape) == 3:
+            cinza = cv2.cvtColor(imagem_np, cv2.COLOR_BGR2GRAY)
+        else:
+            cinza = imagem_np
+
+        codigos_detectados = decode(cinza)
         for codigo in codigos_detectados:
             conteudo_texto = codigo.data.decode('utf-8')
             apenas_numeros = re.sub(r'\D', '', conteudo_texto)
@@ -56,7 +63,11 @@ def extrair_chave_texto_ocr(imagem_np):
     Processa a matriz OpenCV aplicando filtros e executando o OCR do Tesseract.
     """
     try:
-        imagem_cinza = cv2.cvtColor(imagem_np, cv2.COLOR_RGB2GRAY)
+        if len(imagem_np.shape) == 3:
+            imagem_cinza = cv2.cvtColor(imagem_np, cv2.COLOR_BGR2GRAY)
+        else:
+            imagem_cinza = imagem_np
+            
         _, imagem_tratada = cv2.threshold(imagem_cinza, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         
         texto_extraido = pytesseract.image_to_string(imagem_tratada, config='--psm 3')
@@ -70,10 +81,10 @@ def extrair_chave_texto_ocr(imagem_np):
             return re.sub(r'\s', '', padrao_espacado.group(0))
             
         texto_linhas = texto_extraido.replace('.', '').replace('-', '').replace('/', '')
-        for java_code_line in texto_linhas.split('\n'):
-            linha_limpa = java_code_line.replace(' ', '').strip()
+        for linha in texto_linhas.split('\n'):
+            linha_limpa = linha.replace(' ', '').strip()
             if len(linha_limpa) >= 44:
-                achou = re.search(r'\d{50}|\d{44}', java_code_line.replace(' ', '').strip())
+                achou = re.search(r'\d{50}|\d{44}', linha_limpa)
                 if achou:
                     return achou.group(0)
     except Exception:
@@ -145,7 +156,7 @@ with col_direita:
         total_paginas = len(paginas_pdf_processadas)
         progresso_texto = st.empty()
         
-        # Definição estrita das constantes de rotação do OpenCV
+        # Definição das constantes de rotação do OpenCV
         rotacoes_opencv = [
             {"codigo_cv": None},
             {"codigo_cv": cv2.ROTATE_90_CLOCKWISE},
@@ -159,7 +170,9 @@ with col_direita:
         if st.session_state.forcar_ocr:
             for indice, img_pagina in enumerate(paginas_pdf_processadas):
                 num_pagina_atual = indice + 1
-                matriz_original = np.array(img_pagina)
+                
+                # Converte e garante o formato de cor correto do OpenCV (BGR)
+                matriz_original = cv2.cvtColor(np.array(img_pagina), cv2.COLOR_RGB2BGR)
                 
                 for r_data in rotacoes_opencv:
                     if total_paginas > 1:
@@ -186,7 +199,9 @@ with col_direita:
             # --- ETAPA 1: Busca exaustiva de CÓDIGO DE BARRAS em todas as páginas e posições ---
             for indice, img_pagina in enumerate(paginas_pdf_processadas):
                 num_pagina_atual = indice + 1
-                matriz_original = np.array(img_pagina)
+                
+                # Converte e garante o formato de cor correto do OpenCV (BGR)
+                matriz_original = cv2.cvtColor(np.array(img_pagina), cv2.COLOR_RGB2BGR)
                 
                 for r_data in rotacoes_opencv:
                     if total_paginas > 1:
@@ -211,7 +226,9 @@ with col_direita:
             if not chave_encontrada:
                 for indice, img_pagina in enumerate(paginas_pdf_processadas):
                     num_pagina_atual = indice + 1
-                    matriz_original = np.array(img_pagina)
+                    
+                    # Converte e garante o formato de cor correto do OpenCV (BGR)
+                    matriz_original = cv2.cvtColor(np.array(img_pagina), cv2.COLOR_RGB2BGR)
                     
                     for r_data in rotacoes_opencv:
                         if total_paginas > 1:
