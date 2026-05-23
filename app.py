@@ -17,60 +17,98 @@ st.divider()
 if "forcar_ocr" not in st.session_state:
     st.session_state.forcar_ocr = False
 
-# =========================================================================
-# ROTAÇÕES — lista usada em AMBOS os fluxos (códigos e OCR)
-# =========================================================================
 ROTACOES = [
-    {"label": "0°",   "codigo_cv": None},
-    {"label": "90°",  "codigo_cv": cv2.ROTATE_90_CLOCKWISE},
-    {"label": "180°", "codigo_cv": cv2.ROTATE_180},
-    {"label": "270°", "codigo_cv": cv2.ROTATE_90_COUNTERCLOCKWISE},
+    {"codigo_cv": None},
+    {"codigo_cv": cv2.ROTATE_90_CLOCKWISE},
+    {"codigo_cv": cv2.ROTATE_180},
+    {"codigo_cv": cv2.ROTATE_90_COUNTERCLOCKWISE},
 ]
 
 def rotacionar(matriz, codigo_cv):
-    """Retorna a matriz rotacionada, ou a original se codigo_cv for None."""
     if codigo_cv is not None:
         return cv2.rotate(matriz, codigo_cv)
     return matriz.copy()
 
+def validar_chave(texto):
+    """Extrai 44 ou 50 dígitos consecutivos de uma string."""
+    apenas_numeros = re.sub(r'\D', '', texto)
+    m = re.search(r'\d{50}|\d{44}', apenas_numeros)
+    return m.group(0) if m else None
+
 # =========================================================================
-# DETECÇÃO DE CÓDIGO DE BARRAS / QR CODE
-# Correção: pré-processa a imagem para melhorar detecção de código de barras
-# linear (que NÃO é rotacionado automaticamente pelo PyZbar).
+# DETECÇÃO POR PYZBAR
 # =========================================================================
-def tentar_ler_codigos(imagem_np):
+def tentar_pyzbar(cinza):
+    """Tenta PyZbar com imagem original e binarizada."""
+    tentativas = [
+        cinza,
+        cv2.threshold(cinza, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1],
+    ]
+    for img in tentativas:
+        for codigo in decode(img):
+            texto = codigo.data.decode('utf-8')
+            chave = validar_chave(texto)
+            if chave:
+                return chave
+            m = re.search(r'chNFe=(\d{44,50})', texto)
+            if m:
+                return m.group(1)
+    return None
+
+# =========================================================================
+# DETECÇÃO POR OPENCV BARCODE API (reforço para 180° e baixa qualidade)
+# =========================================================================
+def tentar_opencv_barcode(cinza):
     """
-    Tenta decodificar código de barras ou QR Code.
-    Aplica binarização para aumentar contraste antes de passar ao PyZbar,
-    o que melhora significativamente a leitura de códigos lineares.
+    Usa o detector nativo do OpenCV (BarcodeDetector), disponível a partir
+    da versão 4.8 com o módulo wechat_qrcode ou contrib.
+    Funciona bem para códigos de barras lineares rotacionados.
     """
     try:
-        # Converte para cinza
-        if len(imagem_np.shape) == 3:
-            cinza = cv2.cvtColor(imagem_np, cv2.COLOR_BGR2GRAY)
-        else:
-            cinza = imagem_np
+        detector = cv2.barcode.BarcodeDetector()
+        ok, textos, _, _ = detector.detectAndDecodeMulti(cinza)
+        if ok:
+            for texto in textos:
+                if texto:
+                    chave = validar_chave(texto)
+                    if chave:
+                        return chave
+    except AttributeError:
+        pass  # módulo não disponível nesta instalação do OpenCV
+    return None
 
-        # FIX: tenta com a imagem original E com binarização Otsu
-        # O código de barras linear da NFe muitas vezes só é detectado
-        # após binarização, especialmente em imagens escaneadas.
-        tentativas = [cinza, cv2.threshold(cinza, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]]
-
-        for img_tentativa in tentativas:
-            codigos_detectados = decode(img_tentativa)
-            for codigo in codigos_detectados:
-                conteudo_texto = codigo.data.decode('utf-8')
-                apenas_numeros = re.sub(r'\D', '', conteudo_texto)
-
-                if len(apenas_numeros) in [44, 50]:
-                    return apenas_numeros
-
-                busca_chave_url = re.search(r'chNFe=(\d{44,50})', conteudo_texto)
-                if busca_chave_url:
-                    return busca_chave_url.group(1)
-    except Exception:
+# =========================================================================
+# DETECÇÃO POR WECHAT QRCODE (QR Code adicional)
+# =========================================================================
+def tentar_wechat_qr(cinza):
+    """Usa WeChatQRCode do OpenCV contrib para QR Codes difíceis."""
+    try:
+        detector = cv2.wechat_qrcode.WeChatQRCode()
+        textos, _ = detector.detectAndDecode(cinza)
+        for texto in textos:
+            if texto:
+                chave = validar_chave(texto)
+                if chave:
+                    return chave
+    except AttributeError:
         pass
     return None
+
+# =========================================================================
+# PIPELINE COMPLETO DE DETECÇÃO DE CÓDIGOS
+# Tenta PyZbar → OpenCV Barcode → WeChatQR em cada rotação
+# =========================================================================
+def tentar_ler_codigos(imagem_np):
+    if len(imagem_np.shape) == 3:
+        cinza = cv2.cvtColor(imagem_np, cv2.COLOR_BGR2GRAY)
+    else:
+        cinza = imagem_np
+
+    return (
+        tentar_pyzbar(cinza)
+        or tentar_opencv_barcode(cinza)
+        or tentar_wechat_qr(cinza)
+    )
 
 # =========================================================================
 # OCR TRADICIONAL
@@ -83,60 +121,59 @@ def extrair_chave_texto_ocr(imagem_np):
             imagem_cinza = imagem_np
 
         _, imagem_tratada = cv2.threshold(imagem_cinza, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        texto_extraido = pytesseract.image_to_string(imagem_tratada, config='--psm 3')
+        texto = pytesseract.image_to_string(imagem_tratada, config='--psm 3')
 
-        padrao_direto = re.search(r'\b\d{44}\b|\b\d{50}\b', texto_extraido)
-        if padrao_direto:
-            return padrao_direto.group(0)
+        # Tentativa 1: sequência direta de 44/50 dígitos
+        m = re.search(r'\b\d{44}\b|\b\d{50}\b', texto)
+        if m:
+            return m.group(0)
 
-        padrao_espacado = re.search(r'\b(\d{4}\s){10,12}\d{2,4}\b', texto_extraido)
-        if padrao_espacado:
-            return re.sub(r'\s', '', padrao_espacado.group(0))
+        # Tentativa 2: chave com espaços (grupos de 4)
+        m = re.search(r'\b(\d{4}\s){10,12}\d{2,4}\b', texto)
+        if m:
+            return re.sub(r'\s', '', m.group(0))
 
-        texto_linhas = texto_extraido.replace('.', '').replace('-', '').replace('/', '')
-        for linha in texto_linhas.split('\n'):
+        # Tentativa 3: linha com muitos dígitos misturados a separadores
+        texto_limpo = texto.replace('.', '').replace('-', '').replace('/', '')
+        for linha in texto_limpo.split('\n'):
             linha_limpa = linha.replace(' ', '').strip()
             if len(linha_limpa) >= 44:
-                achou = re.search(r'\d{50}|\d{44}', linha_limpa)
-                if achou:
-                    return achou.group(0)
+                m = re.search(r'\d{50}|\d{44}', linha_limpa)
+                if m:
+                    return m.group(0)
     except Exception:
         pass
     return None
 
 # =========================================================================
-# ORQUESTRADOR CENTRAL — evita duplicação de lógica entre os dois fluxos
+# ORQUESTRADOR CENTRAL
 # =========================================================================
 def buscar_chave_em_paginas(paginas, modo, progresso_widget):
     """
-    Itera páginas × rotações aplicando 'modo' ('codigos' ou 'ocr').
-    Retorna (chave_encontrada, metodo_usado) ou (None, "").
-
-    FIX principal: o break interno saía apenas do loop de rotações.
-    Agora usa flag 'achou' para também interromper o loop de páginas,
-    garantindo que TODAS as rotações sejam tentadas antes de desistir.
+    Itera páginas × rotações. Retorna (chave, metodo_simples) ou (None, "").
+    A mensagem de progresso é genérica — sem expor ângulos ao usuário.
     """
     total = len(paginas)
     for idx, img_pagina in enumerate(paginas):
-        num = idx + 1
         matriz_original = cv2.cvtColor(np.array(img_pagina), cv2.COLOR_RGB2BGR)
 
         for r in ROTACOES:
-            label_pag = f"Pág. {num}/{total}" if total > 1 else "documento"
+            if total > 1:
+                progresso_widget.info(f"⏳ Analisando documento (página {idx+1} de {total})...")
+            else:
+                progresso_widget.info("⏳ Analisando documento...")
+
+            matriz = rotacionar(matriz_original, r['codigo_cv'])
 
             if modo == 'codigos':
-                progresso_widget.info(f"🔍 Buscando código de barras/QR ({r['label']}) — {label_pag}...")
-                matriz = rotacionar(matriz_original, r['codigo_cv'])
-                chave  = tentar_ler_codigos(matriz)
-                metodo = f"Código de Barras/QR ({r['label']}) — Pág. {num}"
+                chave = tentar_ler_codigos(matriz)
+                metodo = "Código de Barras / QR Code"
             else:
-                progresso_widget.info(f"🔤 OCR ({r['label']}) — {label_pag}...")
-                matriz = rotacionar(matriz_original, r['codigo_cv'])
-                chave  = extrair_chave_texto_ocr(matriz)
-                metodo = f"OCR ({r['label']}) — Pág. {num}"
+                chave = extrair_chave_texto_ocr(matriz)
+                metodo = "Leitura de Texto (OCR)"
 
             if chave:
-                return chave, metodo   # interrompe tudo imediatamente
+                return chave, metodo
 
     return None, ""
 
@@ -144,8 +181,8 @@ def buscar_chave_em_paginas(paginas, modo, progresso_widget):
 # LAYOUT
 # =========================================================================
 col_esquerda, col_direita = st.columns(2)
-paginas_pdf_processadas = []
-imagem_exibicao_esquerda = None
+paginas_pdf_processadas   = []
+imagem_exibicao_esquerda  = None
 
 with col_esquerda:
     st.subheader("📥 Entrada do Documento")
@@ -189,7 +226,7 @@ with col_esquerda:
 
     if imagem_exibicao_esquerda is not None:
         st.write("")
-        st.image(imagem_exibicao_esquerda, caption="Documento carregado (Visualização Original)", use_container_width=True)
+        st.image(imagem_exibicao_esquerda, caption="Documento carregado", use_container_width=True)
 
 # =========================================================================
 # COLUNA DIREITA — resultados
@@ -198,35 +235,28 @@ with col_direita:
     st.subheader("🔍 Resultados da Análise")
 
     if paginas_pdf_processadas:
-        chave_encontrada        = None
-        metodo_usado            = ""
+        chave_encontrada          = None
+        metodo_usado              = ""
         exibir_botao_contingencia = False
-        progresso_texto         = st.empty()
+        progresso_texto           = st.empty()
 
-        # ── FLUXO 1: forçar OCR manualmente ──────────────────────────────
         if st.session_state.forcar_ocr:
             chave_encontrada, metodo_usado = buscar_chave_em_paginas(
                 paginas_pdf_processadas, 'ocr', progresso_texto
             )
-
-        # ── FLUXO 2: automático (códigos → OCR) ──────────────────────────
         else:
-            # Etapa 1: código de barras / QR em todas as rotações
             chave_encontrada, metodo_usado = buscar_chave_em_paginas(
                 paginas_pdf_processadas, 'codigos', progresso_texto
             )
-
             if chave_encontrada:
                 exibir_botao_contingencia = True
             else:
-                # Etapa 2: OCR somente se nenhum código foi encontrado
                 chave_encontrada, metodo_usado = buscar_chave_em_paginas(
                     paginas_pdf_processadas, 'ocr', progresso_texto
                 )
 
         progresso_texto.empty()
 
-        # ── Exibição dos resultados ───────────────────────────────────────
         if chave_encontrada:
             st.success(f"🎉 Chave encontrada via **{metodo_usado}**!")
 
