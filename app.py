@@ -32,19 +32,20 @@ def tentar_ler_codigos(imagem_np):
     """
     Busca códigos de barras ou QR Codes em uma matriz OpenCV (NumPy).
     """
-    codigos_detectados = decode(imagem_np)
-    
-    for codigo in codigos_detectados:
-        conteudo_texto = codigo.data.decode('utf-8')
-        apenas_numeros = re.sub(r'\D', '', conteudo_texto)
-        
-        if len(apenas_numeros) in [44, 50]:
-            return apenas_numeros
+    try:
+        codigos_detectados = decode(imagem_np)
+        for codigo in codigos_detectados:
+            conteudo_texto = codigo.data.decode('utf-8')
+            apenas_numeros = re.sub(r'\D', '', conteudo_texto)
             
-        busca_chave_url = re.search(r'chNFe=(\d{44,50})', conteudo_texto)
-        if busca_chave_url:
-            return busca_chave_url.group(1)
-            
+            if len(apenas_numeros) in [44, 50]:
+                return apenas_numeros
+                
+            busca_chave_url = re.search(r'chNFe=(\d{44,50})', conteudo_texto)
+            if busca_chave_url:
+                return busca_chave_url.group(1)
+    except Exception:
+        pass
     return None
 
 # =========================================================================
@@ -54,27 +55,29 @@ def extrair_chave_texto_ocr(imagem_np):
     """
     Processa a matriz OpenCV aplicando filtros e executando o OCR do Tesseract.
     """
-    imagem_cinza = cv2.cvtColor(imagem_np, cv2.COLOR_RGB2GRAY)
-    _, imagem_tratada = cv2.threshold(imagem_cinza, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    
-    texto_extraido = pytesseract.image_to_string(imagem_tratada, config='--psm 3')
-    
-    padrao_direto = re.search(r'\b\d{44}\b|\b\d{50}\b', texto_extraido)
-    if padrao_direto:
-        return padrao_direto.group(0)
-    
-    padrao_espacado = re.search(r'\b(\d{4}\s){10,12}\d{2,4}\b', texto_extraido)
-    if padrao_espacado:
-        return re.sub(r'\s', '', padrao_espacado.group(0))
+    try:
+        imagem_cinza = cv2.cvtColor(imagem_np, cv2.COLOR_RGB2GRAY)
+        _, imagem_tratada = cv2.threshold(imagem_cinza, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         
-    texto_linhas = texto_extraido.replace('.', '').replace('-', '').replace('/', '')
-    for linha in texto_linhas.split('\n'):
-        linha_limpa = linha.replace(' ', '').strip()
-        if len(linha_limpa) >= 44:
-            achou = re.search(r'\d{50}|\d{44}', linha_limpa)
-            if achou:
-                return achou.group(0)
-                
+        texto_extraido = pytesseract.image_to_string(imagem_tratada, config='--psm 3')
+        
+        padrao_direto = re.search(r'\b\d{44}\b|\b\d{50}\b', texto_extraido)
+        if padrao_direto:
+            return padrao_direto.group(0)
+        
+        padrao_espacado = re.search(r'\b(\d{4}\s){10,12}\d{2,4}\b', texto_extraido)
+        if padrao_espacado:
+            return re.sub(r'\s', '', padrao_espacado.group(0))
+            
+        texto_linhas = texto_extraido.replace('.', '').replace('-', '').replace('/', '')
+        for java_code_line in texto_linhas.split('\n'):
+            linha_limpa = java_code_line.replace(' ', '').strip()
+            if len(linha_limpa) >= 44:
+                achou = re.search(r'\d{50}|\d{44}', java_code_line.replace(' ', '').strip())
+                if achou:
+                    return achou.group(0)
+    except Exception:
+        pass
     return None
 
 # =========================================================================
@@ -142,12 +145,12 @@ with col_direita:
         total_paginas = len(paginas_pdf_processadas)
         progresso_texto = st.empty()
         
-# Definição dos 4 ângulos de rotação do OpenCV
+        # Definição estrita das constantes de rotação do OpenCV
         rotacoes_opencv = [
-            {"label": "Original", "codigo_cv": None},
-            {"label": "90 graus", "codigo_cv": cv2.ROTATE_90_CLOCKWISE},
-            {"label": "180 graus", "codigo_cv": cv2.ROTATE_180},
-            {"label": "270 graus", "codigo_cv": cv2.ROTATE_90_COUNTERCLOCKWISE}
+            {"codigo_cv": None},
+            {"codigo_cv": cv2.ROTATE_90_CLOCKWISE},
+            {"codigo_cv": cv2.ROTATE_180},
+            {"codigo_cv": cv2.ROTATE_90_COUNTERCLOCKWISE}
         ]
         
         # =========================================================================
@@ -158,14 +161,14 @@ with col_direita:
                 num_pagina_atual = indice + 1
                 matriz_original = np.array(img_pagina)
                 
-                for rotacao in rotacoes_opencv:
+                for r_data in rotacoes_opencv:
                     if total_paginas > 1:
                         progresso_texto.info(f"Aplicando OCR: Pág. {num_pagina_atual} de {total_paginas}...")
                     else:
                         progresso_texto.info(f"Aplicando OCR no documento...")
                         
-                    if /m/0283m_ := rotacao["codigo_cv"] is not None:
-                        matriz_analise = cv2.rotate(matriz_original, rotacao["codigo_cv"])
+                    if r_data["codigo_cv"] is not None:
+                        matriz_analise = cv2.rotate(matriz_original, r_data["codigo_cv"])
                     else:
                         matriz_analise = matriz_original.copy()
                         
@@ -177,61 +180,51 @@ with col_direita:
                     break
                     
         # =========================================================================
-        # FLUXO 2: MODO AUTOMÁTICO INTELIGENTE (CÓDIGO PRIMEIRO -> DEPOIS OCR)
+        # FLUXO 2: MODO AUTOMÁTICO (ABSOLUTAMENTE TODOS OS CÓDIGOS ANTES DO OCR)
         # =========================================================================
         else:
-            # --- PASSO A: Tentar Código de Barras / QR Code em TODAS as páginas e ângulos ---
+            # --- ETAPA 1: Busca exaustiva de CÓDIGO DE BARRAS em todas as páginas e posições ---
             for indice, img_pagina in enumerate(paginas_pdf_processadas):
                 num_pagina_atual = indice + 1
                 matriz_original = np.array(img_pagina)
                 
-                for rotacao in rotacoes_opencv:
+                for r_data in rotacoes_opencv:
                     if total_paginas > 1:
-                        progresso_texto.info(f"Buscando Códigos: Pág. {num_pagina_atual} de {total_paginas} ({rotacao['label']})...")
+                        progresso_texto.info(f"Buscando Códigos: Pág. {num_pagina_atual} de {total_paginas}...")
                     else:
-                        progresso_texto.info(f"Buscando Códigos de barras/QR ({rotacao['label']})...")
+                        progresso_texto.info(f"Buscando Códigos de barras/QR...")
                         
-                    # Força a rotação correta baseada na matriz original limpa
-                    if rotacao["codigo_cv"] is not None:
-                        matriz_analise = cv2.rotate(matriz_original, rotacao["codigo_cv"])
+                    if r_data["codigo_cv"] is not None:
+                        matriz_analise = cv2.rotate(matriz_original, r_data["codigo_cv"])
                     else:
                         matriz_analise = matriz_original.copy()
                         
-                    try:
-                        chave_encontrada = tentar_ler_codigos(matriz_analise)
-                    except Exception:
-                        chave_encontrada = None
-                        
+                    chave_encontrada = tentar_ler_codigos(matriz_analise)
                     if chave_encontrada:
                         metodo_usado = f"Código de Barras / QR Code na Pág. {num_pagina_atual}"
                         exibir_botao_contingencia = True
-                        break  # Sai do laço de rotações da página atual
-                        
+                        break
                 if chave_encontrada:
-                    break  # Sai do laço de páginas
+                    break
             
-            # --- PASSO B: Se e somente se NÃO achou nenhum código, tenta OCR em todas as páginas e ângulos ---
+            # --- ETAPA 2: Se e somente se NENHUM código de barras foi achado, executa o OCR ---
             if not chave_encontrada:
                 for indice, img_pagina in enumerate(paginas_pdf_processadas):
                     num_pagina_atual = indice + 1
                     matriz_original = np.array(img_pagina)
                     
-                    for json_data := rotacao in rotacoes_opencv:
+                    for r_data in rotacoes_opencv:
                         if total_paginas > 1:
-                            progresso_texto.info(f"Buscando via OCR: Pág. {num_pagina_atual} de {total_paginas} ({rotacao['label']})...")
+                            progresso_texto.info(f"Buscando via OCR: Pág. {num_pagina_atual} de {total_paginas}...")
                         else:
                             progresso_texto.info(f"Buscando via OCR (Linha por linha)...")
                             
-                        if rotacao["codigo_cv"] is not None:
-                            matriz_analise = cv2.rotate(matriz_original, rotacao["codigo_cv"])
+                        if r_data["codigo_cv"] is not None:
+                            matriz_analise = cv2.rotate(matriz_original, r_data["codigo_cv"])
                         else:
                             matriz_analise = matriz_original.copy()
                             
-                        try:
-                            chave_encontrada = extrair_chave_texto_ocr(matriz_analise)
-                        except Exception:
-                            chave_encontrada = None
-                            
+                        chave_encontrada = extrair_chave_texto_ocr(matriz_analise)
                         if chave_encontrada:
                             metodo_usado = f"Leitura de Texto (OCR) [Automático] na Pág. {num_pagina_atual}"
                             break
@@ -252,7 +245,6 @@ with col_direita:
             st.caption("📋 Copie a chave clicando no ícone que aparece ao passar o mouse sobre o campo abaixo:")
             st.code(chave_encontrada, language="text")
             
-            # Exibição do botão de contingência baseada na variável restaurada
             if exibir_botao_contingencia:
                 st.write("") 
                 if st.button("🔄 Falso Positivo? Ignorar Código e Identificar por Texto (OCR)", type="secondary", width="stretch"):
