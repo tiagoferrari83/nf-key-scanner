@@ -7,16 +7,20 @@ import numpy as np
 from pdf2image import convert_from_bytes
 from pyzbar.pyzbar import decode
 
+# Configuração de execução do executável do Tesseract
 pytesseract.pytesseract.tesseract_cmd = 'tesseract'
 
+# Configuração da página em modo 'wide'
 st.set_page_config(page_title="Scanner de Nota Fiscal", page_icon="📄", layout="wide")
 st.title("📄 Nota Fiscal Key Scanner (NF-e / NFS-e)")
 st.write("Envie o documento na esquerda. O sistema detecta chaves em qualquer página e corrige rotações automaticamente.")
 st.divider()
 
+# Inicialização do estado da sessão
 if "forcar_ocr" not in st.session_state:
     st.session_state.forcar_ocr = False
 
+# Lista estática de rotações substituindo o loop original
 ROTACOES = [
     {"codigo_cv": None},
     {"codigo_cv": cv2.ROTATE_90_CLOCKWISE},
@@ -36,39 +40,70 @@ def validar_chave(texto):
     return m.group(0) if m else None
 
 # =========================================================================
+# SEÇÃO: VALIDAÇÃO MATEMÁTICA (MÓDULO 11)
+# =========================================================================
+def validar_modulo11(chave):
+    """
+    Valida chaves de 44 ou 50 dígitos usando o algoritmo de Módulo 11.
+    Retorna True se o dígito verificador (último número) for matematicamente válido.
+    """
+    if not chave or len(chave) not in [44, 50]:
+        return False
+        
+    # Isola os dígitos base e o dígito verificador informado
+    digitos_base = [int(d) for d in chave[:-1]]
+    dv_informado = int(chave[-1])
+    
+    soma = 0
+    peso = 2
+    
+    # Percorre os dígitos da direita para a esquerda multiplicando pelos pesos (2 a 9)
+    for d in reversed(digitos_base):
+        soma += d * peso
+        peso += 1
+        if peso > 9:
+            peso = 2
+            
+    resto = soma % 11
+    
+    if resto in [0, 1]:
+        dv_calculado = 0
+    else:
+        dv_calculado = 11 - resto
+        
+    return dv_calculado == dv_informado
+
+# =========================================================================
 # DETECÇÃO POR PYZBAR
 # =========================================================================
 def tentar_ler_codigos(imagem_np):
-    """
-    Tenta decodificar código de barras ou QR Code via PyZbar.
-    Para cada imagem testa a versão original e rotacionada 180°,
-    pois o PyZbar não lida bem com códigos de barras lineares invertidos.
-    Também testa com binarização Otsu para imagens de baixo contraste.
-    """
-    if len(imagem_np.shape) == 3:
-        cinza = cv2.cvtColor(imagem_np, cv2.COLOR_BGR2GRAY)
-    else:
-        cinza = imagem_np
+    try:
+        if len(imagem_np.shape) == 3:
+            cinza = cv2.cvtColor(imagem_np, cv2.COLOR_BGR2GRAY)
+        else:
+            cinza = imagem_np
 
-    cinza_180 = cv2.rotate(cinza, cv2.ROTATE_180)
-    binarizada = cv2.threshold(cinza, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-    binarizada_180 = cv2.rotate(binarizada, cv2.ROTATE_180)
+        cinza_180 = cv2.rotate(cinza, cv2.ROTATE_180)
+        binarizada = cv2.threshold(cinza, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+        binarizada_180 = cv2.rotate(binarizada, cv2.ROTATE_180)
 
-    tentativas = [cinza, cinza_180, binarizada, binarizada_180]
+        tentativas = [cinza, cinza_180, binarizada, binarizada_180]
 
-    for img in tentativas:
-        for codigo in decode(img):
-            texto = codigo.data.decode('utf-8')
-            chave = validar_chave(texto)
-            if chave:
-                return chave
-            m = re.search(r'chNFe=(\d{44,50})', texto)
-            if m:
-                return m.group(1)
+        for img in tentativas:
+            for codigo in decode(img):
+                texto = codigo.data.decode('utf-8')
+                chave = validar_chave(texto)
+                if chave:
+                    return chave
+                m = re.search(r'chNFe=(\d{44,50})', texto)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
     return None
 
 # =========================================================================
-# OCR TRADICIONAL
+# OCR TRADICIONAL VIA TESSERACT
 # =========================================================================
 def extrair_chave_texto_ocr(imagem_np):
     try:
@@ -80,17 +115,14 @@ def extrair_chave_texto_ocr(imagem_np):
         _, imagem_tratada = cv2.threshold(imagem_cinza, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         texto = pytesseract.image_to_string(imagem_tratada, config='--psm 3')
 
-        # Tentativa 1: sequência direta de 44/50 dígitos
         m = re.search(r'\b\d{44}\b|\b\d{50}\b', texto)
         if m:
             return m.group(0)
 
-        # Tentativa 2: chave com espaços (grupos de 4)
         m = re.search(r'\b(\d{4}\s){10,12}\d{2,4}\b', texto)
         if m:
             return re.sub(r'\s', '', m.group(0))
 
-        # Tentativa 3: linha com muitos dígitos misturados a separadores
         texto_limpo = texto.replace('.', '').replace('-', '').replace('/', '')
         for linha in texto_limpo.split('\n'):
             linha_limpa = linha.replace(' ', '').strip()
@@ -106,10 +138,6 @@ def extrair_chave_texto_ocr(imagem_np):
 # ORQUESTRADOR CENTRAL
 # =========================================================================
 def buscar_chave_em_paginas(paginas, modo, progresso_widget):
-    """
-    Itera páginas × rotações. Retorna (chave, metodo_simples) ou (None, "").
-    A mensagem de progresso é genérica — sem expor ângulos ao usuário.
-    """
     total = len(paginas)
     for idx, img_pagina in enumerate(paginas):
         matriz_original = cv2.cvtColor(np.array(img_pagina), cv2.COLOR_RGB2BGR)
@@ -135,7 +163,7 @@ def buscar_chave_em_paginas(paginas, modo, progresso_widget):
     return None, ""
 
 # =========================================================================
-# LAYOUT
+# LAYOUT DA INTERFACE (STREAMLIT)
 # =========================================================================
 col_esquerda, col_direita = st.columns(2)
 paginas_pdf_processadas   = []
@@ -171,7 +199,7 @@ with col_esquerda:
         if "ligar_camera" not in st.session_state:
             st.session_state.ligar_camera = False
 
-        if st.button("🔋 Ativar Câmera do Dispositivo", type="primary", width="stretch"):
+        if st.button("🔋 Ativar Câmera do Dispositivo", type="primary"):
             st.session_state.ligar_camera = True
 
         if st.session_state.ligar_camera:
@@ -183,11 +211,9 @@ with col_esquerda:
 
     if imagem_exibicao_esquerda is not None:
         st.write("")
-        st.image(imagem_exibicao_esquerda, caption="Documento carregado", width="stretch")
+        st.image(imagem_exibicao_esquerda, caption="Documento carregado", width='content')
 
-# =========================================================================
-# COLUNA DIREITA — resultados
-# =========================================================================
+# --- COLUNA DIREITA: PROCESSAMENTO E EXIBIÇÃO DE RESULTADOS ---
 with col_direita:
     st.subheader("🔍 Resultados da Análise")
 
@@ -215,7 +241,14 @@ with col_direita:
         progresso_texto.empty()
 
         if chave_encontrada:
-            st.success(f"🎉 Chave encontrada via **{metodo_usado}**!")
+            # Executa a validação matemática pelo Módulo 11
+            chave_valida_matematicamente = validar_modulo11(chave_encontrada)
+            
+            # Altera a mensagem de sucesso conforme o seu pedido
+            if chave_valida_matematicamente:
+                st.success(f"🎉 Chave válida encontrada via **{metodo_usado}**!")
+            else:
+                st.warning(f"⚠️ Chave encontrada não validada (Falha no Módulo 11) via **{metodo_usado}**!")
 
             if len(chave_encontrada) == 50:
                 st.info("📝 **Tipo:** NFS-e (50 dígitos)")
@@ -227,13 +260,13 @@ with col_direita:
 
             if exibir_botao_contingencia:
                 st.write("")
-                if st.button("🔄 Falso Positivo? Identificar por Texto (OCR)", type="secondary", width="stretch"):
+                if st.button("🔄 Falso Positivo? Identificar por Texto (OCR)", type="secondary", width='content'):
                     st.session_state.forcar_ocr = True
                     st.rerun()
 
             if st.session_state.forcar_ocr:
                 st.write("")
-                if st.button("🔙 Voltar para Detecção Automática", type="primary", width="stretch"):
+                if st.button("🔙 Voltar para Detecção Automática", type="primary", width='content'):
                     st.session_state.forcar_ocr = False
                     st.rerun()
 
@@ -242,9 +275,9 @@ with col_direita:
             with sub_col1:
                 st.link_button("Ir para a Receita Federal 🌐",
                     "https://www.nfe.fazenda.gov.br/portal/consultaRecouch.aspx?tipoConsulta=completa",
-                    width="stretch")
+                    width='content')
             with sub_col2:
-                st.link_button("Ir para o MeuDanfe 📄", "https://meudanfe.com.br", width="stretch")
+                st.link_button("Ir para o MeuDanfe 📄", "https://meudanfe.com.br", width='content')
 
             st.write("")
             st.text_input("Visualização auxiliar (texto):", value=chave_encontrada, key="chave_fiscal_reserva")
