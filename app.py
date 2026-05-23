@@ -6,6 +6,9 @@ import cv2
 import numpy as np
 from pdf2image import convert_from_bytes
 from pyzbar.pyzbar import decode
+import pandas as pd
+import io
+from datetime import datetime
 
 # Configuração de execução do executável do Tesseract
 pytesseract.pytesseract.tesseract_cmd = 'tesseract'
@@ -16,11 +19,16 @@ st.title("📄 Nota Fiscal Key Scanner (NF-e / NFS-e)")
 st.write("Envie o documento na esquerda. O sistema detecta chaves em qualquer página e corrige rotações automaticamente.")
 st.divider()
 
-# Inicialização do estado da sessão
+# =========================================================================
+# SEÇÃO: INICIALIZAÇÃO DE ESTADOS DA SESSÃO (SESSION STATE)
+# =========================================================================
 if "forcar_ocr" not in st.session_state:
     st.session_state.forcar_ocr = False
 
-# Lista estática de rotações substituindo o loop original
+if "historico_chaves" not in st.session_state:
+    st.session_state.historico_chaves = []
+
+# Lista estática de rotações suportadas pelo OpenCV
 ROTACOES = [
     {"codigo_cv": None},
     {"codigo_cv": cv2.ROTATE_90_CLOCKWISE},
@@ -50,14 +58,12 @@ def validar_modulo11(chave):
     if not chave or len(chave) not in [44, 50]:
         return False
         
-    # Isola os dígitos base e o dígito verificador informado
     digitos_base = [int(d) for d in chave[:-1]]
     dv_informado = int(chave[-1])
     
     soma = 0
     peso = 2
     
-    # Percorre os dígitos da direita para a esquerda multiplicando pelos pesos (2 a 9)
     for d in reversed(digitos_base):
         soma += d * peso
         peso += 1
@@ -89,7 +95,7 @@ def tentar_ler_codigos(imagem_np):
 
         tentativas = [cinza, cinza_180, binarizada, binarizada_180]
 
-        for img in tentativas:
+        for img in tentatives:
             for codigo in decode(img):
                 texto = codigo.data.decode('utf-8')
                 chave = validar_chave(texto)
@@ -241,19 +247,36 @@ with col_direita:
         progresso_texto.empty()
 
         if chave_encontrada:
-            # Executa a validação matemática pelo Módulo 11
             chave_valida_matematicamente = validar_modulo11(chave_encontrada)
             
-            # Altera a mensagem de sucesso conforme o seu pedido
             if chave_valida_matematicamente:
                 st.success(f"🎉 Chave válida encontrada via **{metodo_usado}**!")
+                status_historico = "Válida"
             else:
                 st.warning(f"⚠️ Chave encontrada não validada (Falha no Módulo 11) via **{metodo_usado}**!")
+                status_historico = "Inválida (Módulo 11)"
+
+            tipo_doc = "NFS-e (50g)" if len(chave_encontrada) == 50 else "NF-e (44g)"
+            
+            # -----------------------------------------------------------------
+            # REGISTRO NO HISTÓRICO (Evita duplicados consecutivos do mesmo arquivo)
+            # -----------------------------------------------------------------
+            registro_atual = {
+                "Horário da Leitura": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+                "Chave de Acesso": str(chave_encontrada),
+                "Tipo": tipo_doc,
+                "Validação": status_historico,
+                "Método de Captura": metodo_usado
+            }
+            
+            # Só adiciona se o histórico estiver vazio ou se a última chave adicionada for diferente
+            if not st.session_state.historico_chaves or st.session_state.historico_chaves[-1]["Chave de Acesso"] != chave_encontrada:
+                st.session_state.historico_chaves.append(registro_atual)
 
             if len(chave_encontrada) == 50:
-                st.info("📝 **Tipo:** NFS-e (50 dígitos)")
+                st.info("📝 **Tipo:** Documento classificado como NFS-e.")
             else:
-                st.info("🏬 **Tipo:** NF-e (44 dígitos)")
+                st.info("🏬 **Tipo:** Documento classificado como NF-e.")
 
             st.caption("📋 Copie a chave clicando no ícone ao passar o mouse sobre o campo:")
             st.code(chave_encontrada, language="text")
@@ -279,9 +302,6 @@ with col_direita:
             with sub_col2:
                 st.link_button("Ir para o MeuDanfe 📄", "https://meudanfe.com.br", width='content')
 
-            st.write("")
-            st.text_input("Visualização auxiliar (texto):", value=chave_encontrada, key="chave_fiscal_reserva")
-
         else:
             st.error("⚠️ Nenhuma chave de 44 ou 50 dígitos foi localizada no documento.")
             if st.session_state.forcar_ocr:
@@ -290,3 +310,42 @@ with col_direita:
                     st.rerun()
     else:
         st.info("Aguardando o envio de um documento para exibir os resultados nesta área.")
+
+    # =========================================================================
+    # SEÇÃO INTERATIVA: HISTÓRICO DE CONSULTAS & EXPORTAÇÃO EXCEL
+    # =========================================================================
+    st.write("")
+    st.subheader("📋 Histórico de Consultas da Sessão")
+    
+    if st.session_state.historico_chaves:
+        # Converte a lista de dicionários para um DataFrame do Pandas
+        df_historico = pd.DataFrame(st.session_state.historico_chaves)
+        
+        # Inverte a ordem para que a leitura mais recente apareça no topo da tabela
+        df_exibicao = df_historico.iloc[::-1]
+        
+        # Renderiza a tabela do histórico na interface
+        st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
+        
+        # Geração do arquivo Excel (.xlsx) em memória usando BytesIO
+        output_excel = io.BytesIO()
+        with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+            df_historico.to_excel(writer, index=False, sheet_name='Chaves Escaneadas')
+        dados_excel = output_excel.getvalue()
+        
+        # Botões de controle lado a lado (Download e Limpar)
+        col_btn1, col_btn2 = st.columns([3, 1])
+        with col_btn1:
+            st.download_button(
+                label="📥 Baixar Histórico em Excel (.xlsx)",
+                data=dados_excel,
+                file_name=f"historico_chaves_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary"
+            )
+        with col_btn2:
+            if st.button("🗑️ Limpar Histórico", type="secondary"):
+                st.session_state.historico_chaves = []
+                st.rerun()
+    else:
+        st.caption("O histórico está vazio. Envie documentos válidos para popular a tabela.")
