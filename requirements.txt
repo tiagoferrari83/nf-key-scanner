@@ -4,3 +4,5 @@ pillow
 opencv-python-headless
 pdf2image
 pyzbar
+pandas
+openpyxl
