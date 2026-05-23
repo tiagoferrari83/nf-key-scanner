@@ -325,7 +325,7 @@ with col_direita:
         df_exibicao = df_historico.iloc[::-1]
         
         # Renderiza a tabela do histórico na interface
-        st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
+        st.dataframe(df_exibicao, width='stretch', hide_index=True)
         
         # Geração do arquivo Excel (.xlsx) em memória usando BytesIO
         output_excel = io.BytesIO()
